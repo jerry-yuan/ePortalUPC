@@ -172,9 +172,10 @@ class EPortalAdapter:
         except urllib.request.HTTPError as e:
             raise LoginFailed(e)
     #登出
-    def logout(self):
+    def logout(self, userIndex=None):
         try:
-            userIndex = self.getCurrentUserInfo()['userIndex']
+            if userIndex is None:
+                userIndex = self.getCurrentUserInfo()['userIndex']
             result = json.load(self._post("logout", {"userIndex": userIndex}))
             if result['result']=='fail':
                 raise LogoutFailed(result['message'])
