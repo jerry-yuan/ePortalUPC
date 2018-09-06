@@ -1,13 +1,13 @@
 import hashlib
 import http.cookiejar
 import json
-import urllib.request
-import urllib.parse
-import re
-
 import os
+import re
+import urllib.parse
+import urllib.request
 
 from HTTPRedirectHandler import HTTPRedirectHandler
+
 
 class UndefinedISP(Exception):
     def __init__(self,srv):
@@ -174,10 +174,13 @@ class EPortalAdapter:
     #登出
     def logout(self):
         try:
-            result=json.load(self._post("logout",{}))
+            userIndex = self.getCurrentUserInfo()['userIndex']
+            result = json.load(self._post("logout", {"userIndex": userIndex}))
             if result['result']=='fail':
                 raise LogoutFailed(result['message'])
         except urllib.request.HTTPError as e:
+            raise LogoutFailed(e)
+        except UnLoginException as e:
             raise LogoutFailed(e)
         return True
     #获取当前用户状态
