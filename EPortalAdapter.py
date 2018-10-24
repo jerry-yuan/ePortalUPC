@@ -1,6 +1,7 @@
 import hashlib
 import http.cookiejar
 import json
+import logging
 import os
 import re
 import urllib.parse
@@ -55,9 +56,8 @@ class LogoutFailed(Exception):
 
 
 class EPortalAdapter:
-    def __init__(self,loglevel=0):
+    def __init__(self):
         self.validCodeDictFile = "./validCode.json"
-        self.loglevel=loglevel
         self.params = {
             "server": '121.251.251.207',
             "schema": 'http'
@@ -77,18 +77,17 @@ class EPortalAdapter:
         self.validCodeMap=None
         self.queryString=None
         self.pageInfo=None
+        self.logger=logging.getLogger("ePortalAdapter")
     #向认证接口发送GET请求
     def _get(self, method):
         url = self.urlTemplate.format(params=self.params, method=method)
         request = urllib.request.Request(url=url)
-        if self.loglevel>0:
-            print("[GET]{}".format(url))
+        self.logger.debug("[GET]{}".format(url))
         return self.opener.open(request)
     #向认证接口发送POST请求
     def _post(self, method, data):
         url = self.urlTemplate.format(params=self.params, method=method)
-        if self.loglevel>0:
-            print("[POST]{}".format(url))
+        self.logger.debug("[POST]{}".format(url))
         request = urllib.request.Request(
             url=url,
             data=urllib.parse.urlencode(data).encode("utf-8"),
@@ -101,10 +100,13 @@ class EPortalAdapter:
     def getQueryString(self,force=False):
         #QueryString 缓存
         if not force and self.queryString is not None:
+            self.logger.debug("[QueryString]使用缓存")
             return self.queryString
         try:
             response = self.opener.open(self.queryStringSniffUrl)
             scripts=response.read()
+            if type(scripts) == bytes:
+                scripts=scripts.decode("utf-8")
             queryStrings=re.findall(r"http://121.251.251.217/eportal/index.jsp\?(.+?)",scripts)
             if len(queryStrings) < 1:
                 raise QueryStringNotFound("可能网络正常")
@@ -124,10 +126,14 @@ class EPortalAdapter:
     def getValidCode(self):
         validCode='----'
         try:
+            self.logger.debug("[验证码]尝试下载验证码图片.")
             response=self.opener.open(self.validCodeUrl.format(params=self.params))
             imgData=response.read()
+            self.logger.debug("[验证码]图片大小为{}B".format(len(imgData)))
             imgMd5=hashlib.md5(imgData).hexdigest()
+            self.logger.debug("[验证码]MD5:{}".format(imgMd5))
             validCode=self.checkValidCode(imgMd5)
+            self.logger.debug("[验证码]识别结果:{}".format(validCode))
         except urllib.request.HTTPError as e:
             raise UnExpectedStatusCode(e.code,200,"下载验证码图片失败")
         return validCode
@@ -140,11 +146,12 @@ class EPortalAdapter:
                 self.validCodeMap=json.load(fi)
 
         if not md5 in self.validCodeMap.keys():
-            raise  ValidCodeRecognizeFailed("未收录的验证码",md5)
+            raise ValidCodeRecognizeFailed("未收录的验证码",md5)
         return self.validCodeMap[md5]
     #获取PageInfo
     def getPageInfo(self,force=False):
         if not force and self.pageInfo is not None:
+            self.logger.debug("[PageInfo]采用缓存")
             return self.pageInfo
         response=self._post("pageInfo",{"queryString":self.getQueryString()})
         self.pageInfo=json.load(response)
@@ -168,6 +175,7 @@ class EPortalAdapter:
             })
             result=json.load(response)
             if result["result"] == 'fail':
+                self.pageInfo['validCodeUrl']=result["validCodeUrl"]
                 raise LoginFailed(result['message'])
         except urllib.request.HTTPError as e:
             raise LoginFailed(e)
@@ -197,14 +205,20 @@ class EPortalAdapter:
                 raise UnLoginException()
             #删掉没必要的数据
             if not showRaw:
-                drops=['announcement','ballInfo','message','notify','offlineurl','pcClientUrl','portalUrl','redirectUrl','selfUrl','serviceList','successUrl','userUrl','utrustUrl','welcomeTip']
+                drops=['announcement','ballInfo','message','notify','offlineurl','pcClientUrl','portalUrl','redirectUrl','selfUrl','successUrl','userUrl','utrustUrl','welcomeTip']
                 for i in drops:
                     del userInfo[i]
+                #处理一下servicesList
+                userInfo['serviceList']=re.findall(r'selectService\("(.+?)",',userInfo["serviceList"])
         except urllib.request.HTTPError as e:
             raise UnExpectedStatusCode(e.code,200,"拉取当前用户信息失败")
         return userInfo
     #获取可用的ISP
     def getAvaliableISP(self):
-        pageInfo=self.getPageInfo()
-        return list(pageInfo['service'].keys())
+        try:
+            pageInfo=self.getPageInfo()
+            return list(pageInfo['service'].keys())
+        except QueryStringNotFound:
+            userInfo=self.getCurrentUserInfo()
+            return list(userInfo['serviceList'])
 
