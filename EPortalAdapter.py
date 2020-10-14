@@ -77,7 +77,7 @@ class EPortalAdapter:
             "schema": 'http'
         }
         self.cookie = http.cookiejar.CookieJar()
-        self.detectNetworkUrl = "http://aaa.upc.edu.cn"
+        self.detectNetworkUrl = "http://www.upc.edu.cn"
         self.homePageUrl = "http://www.upc.edu.cn"
         self.redirectUrl = "{params[schema]}://{params[server]}/eportal/redirectortosuccess.jsp"
         self.interfaceUrl = "{params[schema]}://{params[server]}/eportal/InterFace.do?method={method}"
@@ -122,7 +122,7 @@ class EPortalAdapter:
         return self.opener.open(request)
 
     def detectNetwork(self):
-        self.logger.debug("[DetectNetwork]正在探测网络结构")
+        self.logger.info("[DetectNetwork]正在探测网络结构")
         try:
             request = urllib.request.Request(
                 url=self.detectNetworkUrl,
@@ -134,7 +134,8 @@ class EPortalAdapter:
             if e.code != 302:
                 raise UnExpectedStatusCode(e.code, 302, "探测网络环境失败")
             urlParsed = urllib.parse.urlparse(e.headers['location'])
-            self.logger.debug("[DetectNetwork]认证服务器地址:{}".format(urlParsed.netloc))
+            self.logger.info(
+                "[DetectNetwork]认证服务器地址:{}".format(urlParsed.netloc))
             self.params['server'] = urlParsed.netloc
             self.params['scheme'] = urlParsed.scheme
 
@@ -164,7 +165,8 @@ class EPortalAdapter:
             scripts = self.opener.open(request).read()
             if type(scripts) == bytes:
                 scripts = scripts.decode("utf-8")
-            queryStrings = re.findall(r"http://121.251.251.217/eportal/index.jsp\?(.+?)", scripts)
+            queryStrings = re.findall(
+                r"http://121.251.251.217/eportal/index.jsp\?(.+?)", scripts)
             if len(queryStrings) < 1:
                 raise QueryStringNotFound("可能网络正常")
             self.queryString = queryStrings
@@ -185,7 +187,8 @@ class EPortalAdapter:
         validCode = '----'
         try:
             self.logger.debug("[验证码]尝试下载验证码图片.")
-            response = self.opener.open(self.validCodeUrl.format(params=self.params))
+            response = self.opener.open(
+                self.validCodeUrl.format(params=self.params))
             imgData = response.read()
             self.logger.debug("[验证码]图片大小为{}B".format(len(imgData)))
             imgMd5 = hashlib.md5(imgData).hexdigest()
@@ -200,7 +203,8 @@ class EPortalAdapter:
     def checkValidCode(self, md5):
         if self.validCodeMap == None:
             if not os.path.exists(self.validCodeDictFile):
-                raise ValidCodeRecognizeFailed("验证码字典丢失,请确保{}的存在".format(self.validCodeDictFile), md5)
+                raise ValidCodeRecognizeFailed(
+                    "验证码字典丢失,请确保{}的存在".format(self.validCodeDictFile), md5)
             with open(self.validCodeDictFile) as fi:
                 self.validCodeMap = json.load(fi)
 
@@ -213,7 +217,8 @@ class EPortalAdapter:
         if not force and self.pageInfo is not None:
             self.logger.debug("[PageInfo]采用缓存")
             return self.pageInfo
-        response = self._post("pageInfo", {"queryString": self.getQueryString()})
+        response = self._post(
+            "pageInfo", {"queryString": self.getQueryString()})
         self.pageInfo = json.load(response)
         return self.pageInfo
 
@@ -223,7 +228,8 @@ class EPortalAdapter:
             raise UndefinedISP(ISP)
         # 判断是否需要验证码
         pageInfo = self.getPageInfo()
-        validCode = "" if not pageInfo['validCodeUrl'].strip() else self.getValidCode()
+        validCode = "" if not pageInfo['validCodeUrl'].strip(
+        ) else self.getValidCode()
         try:
             response = self._post("login", {
                 "operatorPwd": "",
@@ -273,7 +279,8 @@ class EPortalAdapter:
                 for i in drops:
                     del userInfo[i]
                 # 处理一下servicesList
-                userInfo['serviceList'] = re.findall(r'selectService\("(.+?)",', userInfo["serviceList"])
+                userInfo['serviceList'] = re.findall(
+                    r'selectService\("(.+?)",', userInfo["serviceList"])
         except urllib.request.HTTPError as e:
             raise UnExpectedStatusCode(e.code, 200, "拉取当前用户信息失败")
         return userInfo
