@@ -69,6 +69,14 @@ class LogoutFailed(Exception):
         return "登出失败:{}".format(self.reason)
 
 
+class DetectNetworkFailed(Exception):
+    def __init__(self):
+        pass
+
+    def __str__(self):
+        return "网络结构探测失败"
+
+
 class EPortalAdapter:
     def __init__(self):
         self.validCodeDictFile = "./validCode.json"
@@ -76,8 +84,17 @@ class EPortalAdapter:
             "server": '121.251.251.207',
             "schema": 'http'
         }
+        self.loginTriggerUrls = [
+            "http://www.msftconnecttest.com/redirect",      # Windows认证自动跳转触发地址
+            "http://1.1.1.1",                               # 纯IP触发地址
+            "http://lan.upc.edu.cn",                        # 有线网认证登录触发地址
+            "http://wlan.upc.edu.cn",                       # 无线网认证登录触发地址
+        ]
+        self.possibleLoginHost = [
+            "lan.upc.edu.cn",
+            "wlan.upc.edu.cn"
+        ]
         self.cookie = http.cookiejar.CookieJar()
-        self.detectNetworkUrl = "http://www.upc.edu.cn"
         self.homePageUrl = "http://www.upc.edu.cn"
         self.redirectUrl = "{params[schema]}://{params[server]}/eportal/redirectortosuccess.jsp"
         self.interfaceUrl = "{params[schema]}://{params[server]}/eportal/InterFace.do?method={method}"
@@ -123,21 +140,33 @@ class EPortalAdapter:
 
     def detectNetwork(self):
         self.logger.info("[DetectNetwork]正在探测网络结构")
-        try:
-            request = urllib.request.Request(
-                url=self.detectNetworkUrl,
-                headers={"User-Agent": self.userAgent}
-            )
-            self.opener.open(request)
-            raise UnExpectedStatusCode(200, 302, "探测网络环境失败")
-        except urllib.request.HTTPError as e:
-            if e.code != 302:
-                raise UnExpectedStatusCode(e.code, 302, "探测网络环境失败")
-            urlParsed = urllib.parse.urlparse(e.headers['location'])
+        for triggerUrl in self.loginTriggerUrls:
             self.logger.info(
-                "[DetectNetwork]认证服务器地址:{}".format(urlParsed.netloc))
-            self.params['server'] = urlParsed.netloc
-            self.params['scheme'] = urlParsed.scheme
+                "[DetectNetwork]正在尝试使用{}触发认证跳转...".format(triggerUrl))
+            try:
+                request = urllib.request.Request(
+                    url=triggerUrl,
+                    headers={"User-Agent": self.userAgent}
+                )
+                self.opener.open(request)
+            except urllib.request.HTTPError as e:
+                if e.code != 302:
+                    self.logger.warning(
+                        "[DetectNetwork]触发失败:期待302重定向却得到了{}".format(e.code))
+                    continue
+                urlParsed = urllib.parse.urlparse(e.headers['location'])
+                self.logger.info(
+                    "[DetectNetwork]认证跳转地址:{}".format(e.headers['location']))
+                if urlParsed.netloc not in self.possibleLoginHost:
+                    self.logger.warning(
+                        "[DetectNetwork]异常的跳转目标主机:{}".format(urlParsed.netloc))
+                    continue
+                self.logger.info(
+                    "[DetectNetwork]认证服务器地址:{}".format(urlParsed.netloc))
+                self.params['server'] = urlParsed.netloc
+                self.params['scheme'] = urlParsed.scheme
+                return
+        raise DetectNetworkFailed()
 
     # 获取QueryString
     def getQueryString(self, force=False):
